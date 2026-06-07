@@ -20,49 +20,85 @@ jobs:
         run: |
           set -euo pipefail
 
+          CF_API_TOKEN="$(printf '%s' "${CF_API_TOKEN}" | tr -d '\n\r')"
+          if [ -z "$CF_API_TOKEN" ]; then
+            echo "ERROR: CF_API_TOKEN secret is empty" >&2
+            exit 1
+          fi
+
           FLY_HOST="${FLY_APP}.fly.dev"
           CF_ZONE_NAME="${CUSTOM_DOMAIN#*.}"
+          CF_RECORD_NAME="${CUSTOM_DOMAIN%%.${CF_ZONE_NAME}}"
 
-          echo "Looking up Cloudflare zone: ${CF_ZONE_NAME}..."
-          CF_ZONE_ID="$(curl -sf \
-            -H "Authorization: Bearer ${CF_API_TOKEN}" \
-            "https://api.cloudflare.com/client/v4/zones?name=${CF_ZONE_NAME}" \
-            | jq -r '.result[0].id')"
+          cf_api() {
+            local method="$1"
+            local url="$2"
+            local data="${3:-}"
+            local response http_code body
 
-          if [ -z "$CF_ZONE_ID" ] || [ "$CF_ZONE_ID" = "null" ]; then
+            if [ -n "$data" ]; then
+              response="$(curl -sS -w "\n__HTTP__:%{http_code}" -X "$method" \
+                -H "Authorization: Bearer ${CF_API_TOKEN}" \
+                -H "Content-Type: application/json" \
+                "$url" --data "$data")"
+            else
+              response="$(curl -sS -w "\n__HTTP__:%{http_code}" -X "$method" \
+                -H "Authorization: Bearer ${CF_API_TOKEN}" \
+                -H "Content-Type: application/json" \
+                "$url")"
+            fi
+
+            http_code="${response##*__HTTP__:}"
+            body="${response%__HTTP__:*}"
+
+            if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+              echo "ERROR: Cloudflare API ${method} ${url} returned HTTP ${http_code}" >&2
+              echo "$body" | jq . >&2 2>/dev/null || echo "$body" >&2
+              exit 1
+            fi
+
+            printf '%s' "$body"
+          }
+
+          echo "==> Verifying Cloudflare API token..."
+          VERIFY="$(cf_api GET "https://api.cloudflare.com/client/v4/user/tokens/verify")"
+          if ! echo "$VERIFY" | jq -e '.success == true' >/dev/null; then
+            echo "ERROR: CF_API_TOKEN is invalid (use a Zone:DNS:Edit API token, not Wrangler OAuth)" >&2
+            echo "$VERIFY" | jq . >&2
+            exit 1
+          fi
+
+          echo "==> Looking up Cloudflare zone: ${CF_ZONE_NAME}..."
+          ZONES="$(cf_api GET "https://api.cloudflare.com/client/v4/zones?name=${CF_ZONE_NAME}")"
+          CF_ZONE_ID="$(echo "$ZONES" | jq -r '.result[0].id // empty')"
+
+          if [ -z "$CF_ZONE_ID" ]; then
             echo "ERROR: Could not find Cloudflare zone for ${CF_ZONE_NAME}" >&2
+            echo "$ZONES" | jq . >&2
             exit 1
           fi
           echo "Found zone ID: ${CF_ZONE_ID}"
 
-          EXISTING="$(curl -sf \
-            -H "Authorization: Bearer ${CF_API_TOKEN}" \
-            -H "Content-Type: application/json" \
-            "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records?type=CNAME&name=${CUSTOM_DOMAIN}")"
+          EXISTING="$(cf_api GET "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records?type=CNAME&name=${CF_RECORD_NAME}")"
 
-          RECORD_ID="$(echo "$EXISTING" | jq -r --arg name "${CUSTOM_DOMAIN}" \
-            '.result[] | select(.name == $name) | .id' | head -n 1)"
+          RECORD_ID="$(echo "$EXISTING" | jq -r --arg name "${CF_RECORD_NAME}" --arg fqdn "${CUSTOM_DOMAIN}" \
+            '.result[] | select(.name == $name or .name == $fqdn) | .id' | head -n 1)"
 
           if [ -n "$RECORD_ID" ] && [ "$RECORD_ID" != "null" ]; then
             echo "CNAME record already exists for ${CUSTOM_DOMAIN} (id: ${RECORD_ID})"
             exit 0
           fi
 
-          echo "Creating CNAME ${CUSTOM_DOMAIN} -> ${FLY_HOST}..."
-          RESPONSE="$(curl -sf -X POST \
-            -H "Authorization: Bearer ${CF_API_TOKEN}" \
-            -H "Content-Type: application/json" \
-            "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records" \
-            --data "{
-              \"type\": \"CNAME\",
-              \"name\": \"${CUSTOM_DOMAIN}\",
-              \"content\": \"${FLY_HOST}\",
-              \"proxied\": false,
-              \"ttl\": 1
-            }")"
+          echo "Creating CNAME ${CF_RECORD_NAME} -> ${FLY_HOST}..."
+          RESPONSE="$(cf_api POST "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records" "{
+            \"type\": \"CNAME\",
+            \"name\": \"${CF_RECORD_NAME}\",
+            \"content\": \"${FLY_HOST}\",
+            \"proxied\": false,
+            \"ttl\": 1
+          }")"
 
-          SUCCESS="$(echo "$RESPONSE" | jq -r '.success')"
-          if [ "$SUCCESS" != "true" ]; then
+          if ! echo "$RESPONSE" | jq -e '.success == true' >/dev/null; then
             echo "Failed to create DNS record:" >&2
             echo "$RESPONSE" | jq . >&2
             exit 1

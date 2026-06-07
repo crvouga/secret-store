@@ -34,8 +34,8 @@ OpenBao is configured with `skip_create_table = true` so it never auto-creates t
 
 - [GitHub CLI (`gh`)](https://cli.github.com/) — `gh auth login`
 - [flyctl](https://fly.io/docs/hands-on/install-flyctl/) — `fly auth login`
-- [Wrangler](https://developers.cloudflare.com/workers/wrangler/) — `wrangler login`
-- [Neon CLI (`neonctl`)](https://neon.com/docs/reference/cli-install) — `neon auth`
+- [Neon CLI (`neonctl`)](https://neon.com/docs/reference/cli-install) — `neonctl auth`
+- **Cloudflare API token** — [create manually](https://dash.cloudflare.com/profile/api-tokens) with **Zone:DNS:Edit** for `chrisvouga.dev` (Wrangler OAuth cannot be used for DNS API)
 - [OpenBao CLI (`bao`)](https://openbao.org/docs/install/) — for init and smoke tests
 - [PostgreSQL client (`psql`)](https://www.postgresql.org/download/) — for migrations
 - [`jq`](https://jqlang.github.io/jq/) — for init and seed scripts
@@ -55,17 +55,20 @@ Log in to each provider, then run the seed script. It auto-fetches secrets from 
 ```bash
 gh auth login
 fly auth login
-wrangler login
 neonctl auth          # npm i -g neonctl  (or: npx neonctl auth)
+
+# Cloudflare: create Zone:DNS:Edit token at https://dash.cloudflare.com/profile/api-tokens
+# Add to .env (see .env.secrets.example) or export:
+export CLOUDFLARE_API_TOKEN='your-token'
 
 chmod +x scripts/seed-github-secrets.sh
 ./scripts/seed-github-secrets.sh
 ```
 
-| Secret | Required | Auto-fetched from |
-|--------|----------|-------------------|
-| `FLY_API_TOKEN` | Yes | `fly auth token` |
-| `CF_API_TOKEN` | Yes | `wrangler auth token` |
+| Secret | Required | Source |
+|--------|----------|--------|
+| `FLY_API_TOKEN` | Yes | `fly tokens create deploy` (or session token) |
+| `CF_API_TOKEN` | Yes | `CLOUDFLARE_API_TOKEN` — dashboard API token (not Wrangler) |
 | `DB_CONNECTION_URI` | Yes | `neon connection-string` |
 | `BAO_TOKEN` | After init | `init-output.json` (after `./scripts/init.sh`) |
 
@@ -74,9 +77,7 @@ Flags:
 - `--skip-fly` — only seed GitHub (if the Fly app is not created yet)
 - `--skip-bao` — do not fetch or set `BAO_TOKEN`
 
-Optional overrides via `.env.secrets` (copy from `.env.secrets.example`) or environment variables. Set `NEON_PROJECT_ID` if you have multiple Neon projects (or run `neon set-context` first).
-
-If CI DNS provisioning fails, the Wrangler OAuth token may lack zone DNS permissions. Create a scoped **Zone:DNS:Edit** API token in Cloudflare and set `CLOUDFLARE_API_TOKEN` in `.env.secrets` before re-running the script.
+Optional overrides via [`.env`](.env) or [`.env.secrets`](.env.secrets.example) (`.env.secrets` takes precedence). Set `NEON_PROJECT_ID` if you have multiple Neon projects (or run `neon set-context` first).
 
 Re-run after `init.sh` to pick up `BAO_TOKEN` from `init-output.json` for CI smoke tests.
 

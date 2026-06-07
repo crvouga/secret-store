@@ -7,6 +7,7 @@ SKIP_BAO=false
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+ENV_FILE="${REPO_ROOT}/.env"
 ENV_SECRETS_FILE="${REPO_ROOT}/.env.secrets"
 INIT_OUTPUT_FILE="${REPO_ROOT}/init-output.json"
 
@@ -28,10 +29,13 @@ Options:
 Log in first:
   gh auth login
   fly auth login
-  wrangler login
   neonctl auth       # npm i -g neonctl  (or: npx neonctl auth)
 
-Optional overrides (env vars or ${ENV_SECRETS_FILE}):
+Cloudflare requires a dashboard API token (Wrangler OAuth does not work):
+  Create at https://dash.cloudflare.com/profile/api-tokens (Zone:DNS:Edit for chrisvouga.dev)
+  export CLOUDFLARE_API_TOKEN='...'  or add to .env / .env.secrets
+
+Optional overrides (env vars, ${ENV_FILE}, or ${ENV_SECRETS_FILE}):
   NEON_PROJECT_ID, FLY_API_TOKEN, CF_API_TOKEN, CLOUDFLARE_API_TOKEN,
   DB_CONNECTION_URI, BAO_TOKEN
 
@@ -136,25 +140,62 @@ fetch_fly_api_token() {
 
 fetch_cf_api_token() {
   if [ -n "${CF_API_TOKEN:-}" ]; then
+    CF_API_TOKEN="$(printf '%s' "$CF_API_TOKEN" | tr -d '\n\r')"
     record_source "CF_API_TOKEN (environment override)"
     return 0
   fi
 
   if [ -n "${CLOUDFLARE_API_TOKEN:-}" ]; then
-    CF_API_TOKEN="$CLOUDFLARE_API_TOKEN"
-    record_source "CF_API_TOKEN (CLOUDFLARE_API_TOKEN override)"
+    CF_API_TOKEN="$(printf '%s' "$CLOUDFLARE_API_TOKEN" | tr -d '\n\r')"
+    record_source "CF_API_TOKEN (CLOUDFLARE_API_TOKEN)"
     return 0
   fi
 
-  require_cmd wrangler "Install: npm i -g wrangler"
-  if ! wrangler whoami >/dev/null 2>&1; then
-    echo "ERROR: wrangler is not authenticated. Run: wrangler login" >&2
+  echo "ERROR: Cloudflare API token required for DNS provisioning in CI." >&2
+  echo "" >&2
+  echo "Wrangler OAuth tokens cannot be used with the Cloudflare REST API." >&2
+  echo "Create a token at: https://dash.cloudflare.com/profile/api-tokens" >&2
+  echo "  Template: Edit zone DNS" >&2
+  echo "  Zone: chrisvouga.dev" >&2
+  echo "" >&2
+  echo "Then either:" >&2
+  echo "  export CLOUDFLARE_API_TOKEN='...' && ./scripts/seed-github-secrets.sh" >&2
+  echo "  or add CLOUDFLARE_API_TOKEN=... to .env or .env.secrets" >&2
+  exit 1
+}
+
+load_env_file() {
+  local file="$1"
+  if [ -f "$file" ]; then
+    echo "==> Loading $(basename "$file")"
+    set -a
+    # shellcheck source=/dev/null
+    source "$file"
+    set +a
+  fi
+}
+
+verify_cf_api_token() {
+  local response http_code
+  response="$(curl -sS -w "\n__HTTP_CODE__:%{http_code}" \
+    -H "Authorization: Bearer ${CF_API_TOKEN}" \
+    "https://api.cloudflare.com/client/v4/user/tokens/verify")"
+  http_code="${response##*__HTTP_CODE__:}"
+  response="${response%__HTTP_CODE__:*}"
+
+  if [ "$http_code" != "200" ]; then
+    echo "ERROR: Cloudflare token verification failed (HTTP ${http_code})" >&2
+    echo "$response" | jq . >&2 2>/dev/null || echo "$response" >&2
     exit 1
   fi
 
-  echo "==> Fetching CF_API_TOKEN from wrangler auth token"
-  CF_API_TOKEN="$(wrangler auth token)"
-  record_source "CF_API_TOKEN (wrangler auth token)"
+  if ! echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
+    echo "ERROR: Cloudflare token is invalid or lacks required permissions" >&2
+    echo "$response" | jq . >&2
+    exit 1
+  fi
+
+  echo "==> Cloudflare API token verified"
 }
 
 fetch_db_connection_uri() {
@@ -256,13 +297,8 @@ if [ -z "$GITHUB_REPO" ]; then
   exit 1
 fi
 
-if [ -f "$ENV_SECRETS_FILE" ]; then
-  echo "==> Loading optional overrides from .env.secrets"
-  set -a
-  # shellcheck source=/dev/null
-  source "$ENV_SECRETS_FILE"
-  set +a
-fi
+load_env_file "$ENV_FILE"
+load_env_file "$ENV_SECRETS_FILE"
 
 echo "==> GitHub repository: ${GITHUB_REPO}"
 echo "==> Fly app: ${FLY_APP}"
@@ -270,6 +306,7 @@ echo ""
 
 fetch_fly_api_token
 fetch_cf_api_token
+verify_cf_api_token
 fetch_db_connection_uri
 fetch_bao_token
 
