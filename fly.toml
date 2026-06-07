@@ -1,0 +1,23 @@
+app = 'secret-store-chrisvouga'
+primary_region = 'iad'
+
+[build]
+
+[http_service]
+  internal_port = 8200
+  force_https = true
+  auto_stop_machines = false
+  min_machines_running = 1
+  processes = ['app']
+
+  [[http_service.checks]]
+    interval = '15s'
+    timeout = '5s'
+    grace_period = '30s'
+    method = 'GET'
+    path = '/v1/sys/health?standbyok=true&sealedcode=200&uninitcode=200'
+
+[[vm]]
+  memory = '512mb'
+  cpu_kind = 'shared'
+  cpus = 1

@@ -1,0 +1,171 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  FLY_APP: secret-store-chrisvouga
+  CUSTOM_DOMAIN: secret-store.chrisvouga.dev
+
+jobs:
+  provision-dns:
+    name: Provision DNS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ensure Cloudflare CNAME record exists
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          FLY_HOST="${FLY_APP}.fly.dev"
+          CF_ZONE_NAME="${CUSTOM_DOMAIN#*.}"
+
+          echo "Looking up Cloudflare zone: ${CF_ZONE_NAME}..."
+          CF_ZONE_ID="$(curl -sf \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            "https://api.cloudflare.com/client/v4/zones?name=${CF_ZONE_NAME}" \
+            | jq -r '.result[0].id')"
+
+          if [ -z "$CF_ZONE_ID" ] || [ "$CF_ZONE_ID" = "null" ]; then
+            echo "ERROR: Could not find Cloudflare zone for ${CF_ZONE_NAME}" >&2
+            exit 1
+          fi
+          echo "Found zone ID: ${CF_ZONE_ID}"
+
+          EXISTING="$(curl -sf \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records?type=CNAME&name=${CUSTOM_DOMAIN}")"
+
+          RECORD_ID="$(echo "$EXISTING" | jq -r --arg name "${CUSTOM_DOMAIN}" \
+            '.result[] | select(.name == $name) | .id' | head -n 1)"
+
+          if [ -n "$RECORD_ID" ] && [ "$RECORD_ID" != "null" ]; then
+            echo "CNAME record already exists for ${CUSTOM_DOMAIN} (id: ${RECORD_ID})"
+            exit 0
+          fi
+
+          echo "Creating CNAME ${CUSTOM_DOMAIN} -> ${FLY_HOST}..."
+          RESPONSE="$(curl -sf -X POST \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records" \
+            --data "{
+              \"type\": \"CNAME\",
+              \"name\": \"${CUSTOM_DOMAIN}\",
+              \"content\": \"${FLY_HOST}\",
+              \"proxied\": false,
+              \"ttl\": 1
+            }")"
+
+          SUCCESS="$(echo "$RESPONSE" | jq -r '.success')"
+          if [ "$SUCCESS" != "true" ]; then
+            echo "Failed to create DNS record:" >&2
+            echo "$RESPONSE" | jq . >&2
+            exit 1
+          fi
+
+          echo "Created CNAME record for ${CUSTOM_DOMAIN}"
+
+  migrate-db:
+    name: Run DB Migrations
+    needs: provision-dns
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Run migrations
+        env:
+          DB_CONNECTION_URI: ${{ secrets.DB_CONNECTION_URI }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/migrate.sh
+          ./scripts/migrate.sh
+
+  deploy:
+    name: Deploy to Fly.io
+    needs: migrate-db
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl deploy --remote-only --app "${FLY_APP}"
+
+  issue-tls:
+    name: Issue TLS Certificate
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Add certificate
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if flyctl certs list --app "${FLY_APP}" | grep -q "${CUSTOM_DOMAIN}"; then
+            echo "Certificate for ${CUSTOM_DOMAIN} already registered"
+          else
+            flyctl certs add "${CUSTOM_DOMAIN}" --app "${FLY_APP}"
+          fi
+
+      - name: Wait for certificate to become ready
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            STATUS="$(flyctl certs check "${CUSTOM_DOMAIN}" --app "${FLY_APP}" 2>&1 || true)"
+            echo "$STATUS"
+            if echo "$STATUS" | grep -qi "ready"; then
+              echo "Certificate is ready"
+              exit 0
+            fi
+            if [ "$i" -eq 60 ]; then
+              echo "ERROR: Certificate did not become ready within 30 minutes" >&2
+              exit 1
+            fi
+            sleep 30
+          done
+
+  smoke-test:
+    name: Smoke Test
+    needs: issue-tls
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run smoke test
+        env:
+          BAO_ADDR: https://${{ env.CUSTOM_DOMAIN }}
+          BAO_TOKEN: ${{ secrets.BAO_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BAO_TOKEN}" ]; then
+            echo "BAO_TOKEN not configured — skipping smoke test (add after running init.sh)"
+            exit 0
+          fi
+
+          VERSION="$(curl -sf https://api.github.com/repos/openbao/openbao/releases/latest | jq -r .tag_name)"
+          curl -fsSL "https://github.com/openbao/openbao/releases/download/${VERSION}/bao_${VERSION#v}_linux_amd64.tar.gz" -o bao.tar.gz
+          tar -xzf bao.tar.gz
+          sudo install -m 755 bao /usr/local/bin/bao
+
+          chmod +x scripts/smoke-test.sh
+          ./scripts/smoke-test.sh

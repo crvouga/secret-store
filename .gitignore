@@ -1,0 +1,14 @@
+# Init output contains unseal keys and root token — never commit
+init-output.json
+
+# Environment files
+.env
+.env.*
+!.env.example
+!.env.secrets.example
+
+# OS / editor
+.DS_Store
+*.swp
+*.swo
+*~
