@@ -226,6 +226,36 @@ Re-running the script is safe — KV v2 creates a new version for each write. Ve
 vault kv get -format=json secret/myapp/prd
 ```
 
+## Syncing dev keys to prd
+
+Use [`scripts/sync-dev-keys-to-prd.sh`](scripts/sync-dev-keys-to-prd.sh) to ensure each project's `prd` secret has every key from its `dev` secret. Missing keys in prd are copied from dev; existing prd keys are never overwritten. Keys present only in prd are left unchanged. The script never syncs prd → dev.
+
+**Prerequisites:**
+
+- OpenBao initialized and unsealed
+- Vault auth with **write** access to `secret/data/*` (root or admin policy — not the read-only `dev-read` token)
+
+```bash
+chmod +x scripts/vault-run.sh scripts/sync-dev-keys-to-prd.sh
+
+# Preview missing prd keys (names only, no values printed)
+./scripts/vault-run.sh -- ./scripts/sync-dev-keys-to-prd.sh --dry-run
+
+# Copy missing dev keys into prd for all projects
+./scripts/vault-run.sh -- ./scripts/sync-dev-keys-to-prd.sh
+
+# Limit to one project
+./scripts/vault-run.sh -- ./scripts/sync-dev-keys-to-prd.sh --project personal
+```
+
+| Flag | Purpose |
+|------|---------|
+| `--dry-run` | List missing key names per project without writing |
+| `--mount PATH` | KV v2 mount (default: `secret`) |
+| `--project NAME` | Limit to specific projects (repeatable) |
+
+Re-running is safe — only keys absent from prd are added.
+
 ## Using secrets locally (Doppler-style)
 
 Install the global `vault` wrapper once, then use `vault run` in any project to inject secrets as environment variables.
