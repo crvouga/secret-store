@@ -41,7 +41,7 @@ Use these values directly — do not ask me for the project or config names.
 | `doppler setup`               | `vault setup --project personal --config dev` |
 | `doppler run -- <cmd>`        | `vault run -- <cmd>`                         |
 | `doppler.yaml`                | `.vault.yaml`                                |
-| `DOPPLER_TOKEN` (CI)          | `VAULT_TOKEN` (CI)                           |
+| `DOPPLER_TOKEN` (CI)          | GitHub Actions OIDC (no stored token) — see step 6 |
 
 ## Goal
 
@@ -100,9 +100,39 @@ the app sees) must be unchanged. A repo-wide search for `doppler` / `DOPPLER`
    etc. The default config is `dev`; for production use
    `vault run --config prd -- <cmd>`.
 
-6. **Update CI.** Replace `DOPPLER_TOKEN` with a `VAULT_TOKEN` secret and set
-   `VAULT_ADDR=https://secret-store.chrisvouga.dev`. Run app commands through
-   the wrapper (`vault run -- ...`) or export env first. Never hardcode tokens.
+6. **Update CI (GitHub Actions OIDC — no stored token).** Do NOT add a
+   `VAULT_TOKEN` secret. The store has a JWT auth method that trusts GitHub's
+   OIDC issuer, so CI authenticates with a short-lived token minted per run.
+
+   Remove `DOPPLER_TOKEN` and pull secrets via OIDC instead. Grant the job the
+   OIDC permission and use `hashicorp/vault-action` (works against OpenBao):
+
+   ```yaml
+   permissions:
+     id-token: write   # required to request a GitHub OIDC token
+     contents: read
+
+   steps:
+     - uses: hashicorp/vault-action@v3
+       with:
+         url: https://secret-store.chrisvouga.dev
+         method: jwt
+         path: jwt
+         role: github-actions
+         secrets: |
+           secret/data/personal/prd OPENAI_API_KEY | OPENAI_API_KEY ;
+           secret/data/personal/prd DATABASE_URL   | DATABASE_URL
+   ```
+
+   This repo must be allowed by the JWT role's bound claims. If `vault-action`
+   fails with a permission/role error, tell me to authorize it from the
+   `secret-store` repo (one-time, per repo or via an owner-wide glob):
+
+   ```bash
+   ./scripts/setup-oidc-auth.sh --repo chrisvouga/<this-repo>
+   ```
+
+   Never hardcode tokens or add a `VAULT_TOKEN`/`DOPPLER_TOKEN` CI secret.
 
 7. **Update docs.** Fix README/setup instructions to describe `vault login`,
    `vault setup`, and `vault run` instead of the Doppler equivalents.
@@ -139,6 +169,8 @@ the app sees) must be unchanged. A repo-wide search for `doppler` / `DOPPLER`
 - Never print secret values, commit tokens, or hardcode credentials.
 - `.vault.yaml` is safe to commit (no secrets). `VAULT_TOKEN` and any
   `init-output.json` / `.vault-token` are NOT — keep them out of git.
+- CI must use GitHub Actions OIDC (step 6), not a stored `VAULT_TOKEN`. A
+  static token is only acceptable for local/manual use.
 - Make the smallest changes needed; do not refactor unrelated code.
 
 ## Deliverable
@@ -151,5 +183,5 @@ When done, output:
 4. Proof that Doppler is fully removed: the output of a repo-wide
    case-insensitive search for `doppler` showing no remaining matches (or an
    explicit justification for anything intentionally kept).
-5. A checklist of anything left for me to do manually (auth, CI secret,
-   running the migration helper).
+5. A checklist of anything left for me to do manually (auth, authorizing this
+   repo for OIDC via `setup-oidc-auth.sh`, running the migration helper).
