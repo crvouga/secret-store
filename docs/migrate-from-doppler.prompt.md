@@ -1,7 +1,7 @@
 # Prompt: Migrate a project from Doppler to self-hosted OpenBao/Vault
 
 Copy everything below the line into your coding agent, running it **inside the
-project repo you want to migrate**. Fill in the `FILL ME IN` values first.
+project repo you want to migrate**.
 
 ---
 
@@ -9,21 +9,21 @@ You are migrating this project off **Doppler** and onto a **self-hosted
 OpenBao/Vault** instance. Doppler is being decommissioned; this repo must read
 its secrets from the self-hosted store instead.
 
-## Inputs (fill these in)
+## Fixed coordinates for this setup
 
-- Doppler project name: `FILL ME IN` (e.g. `myapp`)
-- Doppler config(s) / environments to migrate: `FILL ME IN` (e.g. `dev`, `prd`)
-- Secrets already migrated into the store? `FILL ME IN` (yes / no / unsure)
+- Doppler project: always **`personal`**
+- Doppler configs / environments: **`dev`** and **`prd`** (only these two)
+- Store paths: `secret/personal/dev` and `secret/personal/prd`
+- Default config for this repo: `dev` (use `prd` for production commands)
 
-If any input is missing, inspect the repo (look for `doppler.yaml`) to infer it,
-then ask me to confirm before changing anything.
+Use these values directly — do not ask me for the project or config names.
 
 ## Facts about the target store (do not change these)
 
 - Vault/OpenBao API address: `https://secret-store.chrisvouga.dev`
 - Secrets engine: **KV v2**, mounted at `secret/`
-- Path convention: `secret/<project>/<config>`
-  - Example: Doppler `myapp` / `prd` lives at `secret/myapp/prd`
+- Path convention: `secret/<project>/<config>` → here `secret/personal/dev`
+  and `secret/personal/prd`
   - Each Doppler key is a **field** on that secret; reserved `DOPPLER_*` keys
     are not migrated
 - The store ships a Doppler-style CLI wrapper (from the `secret-store` repo)
@@ -38,16 +38,20 @@ then ask me to confirm before changing anything.
 | Doppler                       | This setup                                  |
 | ----------------------------- | ------------------------------------------- |
 | `doppler login`               | `vault login hvs.xxx` (or a scoped dev token) |
-| `doppler setup`               | `vault setup --project <p> --config <c>`    |
+| `doppler setup`               | `vault setup --project personal --config dev` |
 | `doppler run -- <cmd>`        | `vault run -- <cmd>`                         |
 | `doppler.yaml`                | `.vault.yaml`                                |
 | `DOPPLER_TOKEN` (CI)          | `VAULT_TOKEN` (CI)                           |
 
 ## Goal
 
-After migration, the project fetches secrets from `secret/<project>/<config>`
-via `vault run`, with **no remaining dependency on Doppler** for runtime
-secrets. Behavior (the set of env vars the app sees) must be unchanged.
+**Completely remove Doppler and fully replace it with the self-hosted Vault.**
+After migration the project must fetch all secrets from `secret/personal/<config>`
+via `vault run`, and there must be **zero** remaining references to Doppler
+anywhere in the repo — no `doppler` CLI usage, config files, dependencies, CI
+steps, install steps, env vars, or documentation. Behavior (the set of env vars
+the app sees) must be unchanged. A repo-wide search for `doppler` / `DOPPLER`
+(case-insensitive) must return nothing once you are done.
 
 ## Steps
 
@@ -69,15 +73,16 @@ secrets. Behavior (the set of env vars the app sees) must be unchanged.
    Do not attempt to install global tooling yourself — tell me the exact
    commands to run if they are missing.
 
-3. **Ensure secrets exist in the store.** If the inputs say secrets are not yet
-   migrated, do NOT invent values. Tell me to run the migration helper from the
-   `secret-store` repo, then continue once it reports success:
+3. **Ensure secrets exist in the store.** If `secret/personal/dev` or
+   `secret/personal/prd` is missing, do NOT invent values. Tell me to run the
+   migration helper from the `secret-store` repo, then continue once it reports
+   success:
 
    ```bash
    ./scripts/vault-run.sh -- ./scripts/migrate-doppler-to-openbao.sh \
-     --project <project> --dry-run        # preview
+     --project personal --dry-run        # preview
    ./scripts/vault-run.sh -- ./scripts/migrate-doppler-to-openbao.sh \
-     --project <project>                  # write (upsert)
+     --project personal                  # write (upsert)
    ```
 
 4. **Create `.vault.yaml`** at the repo root (replacing `doppler.yaml`). It
@@ -86,13 +91,14 @@ secrets. Behavior (the set of env vars the app sees) must be unchanged.
    ```yaml
    addr: https://secret-store.chrisvouga.dev
    mount: secret
-   project: <project>
-   config: <default-config>   # e.g. dev
+   project: personal
+   config: dev   # default; use prd for production commands
    ```
 
 5. **Replace runtime commands.** Swap every `doppler run -- <cmd>` for
    `vault run -- <cmd>` in scripts, `package.json`, `Makefile`, Dockerfiles,
-   etc. For non-default configs use `vault run --config <c> -- <cmd>`.
+   etc. The default config is `dev`; for production use
+   `vault run --config prd -- <cmd>`.
 
 6. **Update CI.** Replace `DOPPLER_TOKEN` with a `VAULT_TOKEN` secret and set
    `VAULT_ADDR=https://secret-store.chrisvouga.dev`. Run app commands through
@@ -113,8 +119,19 @@ secrets. Behavior (the set of env vars the app sees) must be unchanged.
    they may be `DOPPLER_*` reserved keys (intentionally excluded) or may need to
    be added to the secret.
 
-9. **Remove Doppler.** Once verified, delete `doppler.yaml`/`doppler.yml`, drop
-   `DOPPLER_TOKEN` from CI, and remove any Doppler install steps or dependencies.
+9. **Completely remove Doppler.** Once verified, eradicate every trace of
+   Doppler from the repo:
+   - Delete `doppler.yaml` / `doppler.yml` (and any `.doppler` files).
+   - Remove the `doppler` CLI from dependencies and lockfiles (`package.json`,
+     `Brewfile`, `requirements`, etc.) and from any `mise`/`asdf`/tool configs.
+   - Remove every Doppler install/setup step from Dockerfiles, CI workflows,
+     scripts, and Makefiles.
+   - Drop `DOPPLER_TOKEN` and any other `DOPPLER_*` vars from CI secrets,
+     `.env*` files, and `.env.example` files.
+   - Strip all Doppler mentions from READMEs and docs, replacing them with the
+     `vault login` / `vault setup` / `vault run` equivalents.
+   - Finally, run a repo-wide case-insensitive search for `doppler` and confirm
+     there are **no** matches left (call out anything intentionally kept).
 
 ## Constraints
 
@@ -131,5 +148,8 @@ When done, output:
 1. A list of every file changed and why.
 2. The final `.vault.yaml`.
 3. The verification result from step 8 (env var names matched / any gaps).
-4. A checklist of anything left for me to do manually (auth, CI secret,
+4. Proof that Doppler is fully removed: the output of a repo-wide
+   case-insensitive search for `doppler` showing no remaining matches (or an
+   explicit justification for anything intentionally kept).
+5. A checklist of anything left for me to do manually (auth, CI secret,
    running the migration helper).
