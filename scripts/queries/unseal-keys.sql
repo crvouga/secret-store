@@ -27,7 +27,7 @@ keys AS (
   CROSS JOIN generate_series(1, 5) AS n
 ),
 lines AS (
-  SELECT 0 AS sort_order, 'export VAULT_ADDR="https://secret-store.chrisvouga.dev"' AS line
+  SELECT 0 AS sort_order, 'export VAULT_ADDR="https://vault.chrisvouga.dev"' AS line
 
   UNION ALL
   SELECT 1, ''

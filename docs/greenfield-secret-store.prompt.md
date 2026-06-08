@@ -13,7 +13,7 @@ secrets the app needs, connect it to the store, and document the workflow.
 ## What the secret store is
 
 - A self-hosted [OpenBao](https://openbao.org/) instance (Vault-compatible API)
-- API address: `https://secret-store.chrisvouga.dev`
+- API address: `https://vault.chrisvouga.dev`
 - Secrets engine: **KV v2**, mounted at `secret/`
 - Path convention: `secret/<project>/<config>`
   - `<project>` — logical app namespace (often the repo name, or `personal` for
@@ -80,7 +80,7 @@ GitHub Actions OIDC is already configured on the store for repos under
 - Auth mount / method: `jwt` (trusts GitHub's OIDC issuer)
 - Role: `github-actions`
 - Policy: `ci-read` (read-only on `secret/personal/*` by default)
-- Bound audience: `https://secret-store.chrisvouga.dev`
+- Bound audience: `https://vault.chrisvouga.dev`
 - Allowed repos: `crvouga/*` (any branch); tokens are short-lived (15m / 30m max)
 
 Use `hashicorp/vault-action` (works against OpenBao):
@@ -93,7 +93,7 @@ permissions:
 steps:
   - uses: hashicorp/vault-action@v3
     with:
-      url: https://secret-store.chrisvouga.dev
+      url: https://vault.chrisvouga.dev
       method: jwt
       path: jwt
       role: github-actions
@@ -105,7 +105,7 @@ steps:
 Replace `<project>` with the project name chosen above (e.g. the repo name).
 
 If `vault-action` fails with an audience error, add
-`jwtGithubAudience: https://secret-store.chrisvouga.dev` to the step.
+`jwtGithubAudience: https://vault.chrisvouga.dev` to the step.
 
 If it fails with a role/permission error:
 
@@ -130,7 +130,7 @@ boot) read the KV v2 HTTP API directly with a **long-lived, read-only
 `VAULT_TOKEN`** stored as a platform secret:
 
 ```
-GET https://secret-store.chrisvouga.dev/v1/secret/data/<project>/<config>
+GET https://vault.chrisvouga.dev/v1/secret/data/<project>/<config>
 X-Vault-Token: <VAULT_TOKEN>
 ```
 
@@ -193,7 +193,7 @@ to git.
    coordinates, and is safe to commit:
 
    ```yaml
-   addr: https://secret-store.chrisvouga.dev
+   addr: https://vault.chrisvouga.dev
    mount: secret
    project: <repo-name>
    config: dev # default; use prd for production commands

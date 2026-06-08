@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VAULT_ADDR="${VAULT_ADDR:-https://secret-store.chrisvouga.dev}"
+VAULT_ADDR="${VAULT_ADDR:-https://vault.chrisvouga.dev}"
 INIT_OUTPUT="${INIT_OUTPUT:-init-output.json}"
 KEY_SHARES=5
 KEY_THRESHOLD=3

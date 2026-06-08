@@ -1,7 +1,7 @@
 # Shared Vault authentication helpers for secret-store CLI.
 # shellcheck shell=bash
 
-VAULT_DEFAULT_ADDR="${VAULT_DEFAULT_ADDR:-https://secret-store.chrisvouga.dev}"
+VAULT_DEFAULT_ADDR="${VAULT_DEFAULT_ADDR:-https://vault.chrisvouga.dev}"
 
 is_vault_cli() {
   local bin="$1"

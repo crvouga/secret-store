@@ -2,7 +2,7 @@
 
 Production-ready [OpenBao](https://openbao.org/) deployment on Fly.io with Neon Postgres storage, Cloudflare DNS, and automated GitHub Actions pipeline.
 
-**URL:** https://secret-store.chrisvouga.dev
+**URL:** https://vault.chrisvouga.dev
 
 ## Architecture
 
@@ -85,14 +85,14 @@ Re-run after `init.sh` if you want `VAULT_TOKEN` in GitHub for local tooling; CI
 
 The workflow derives everything else automatically:
 
-- **Cloudflare zone** — looked up from `CUSTOM_DOMAIN` (`secret-store.chrisvouga.dev` → zone `chrisvouga.dev`)
+- **Cloudflare zone** — looked up from `CUSTOM_DOMAIN` (`vault.chrisvouga.dev` → zone `chrisvouga.dev`)
 - **Fly hostname** — derived from `FLY_APP` (`secret-store-chrisvouga.fly.dev`)
 
 ### 3. Deploy via GitHub Actions
 
 Push to `main` (or run **Actions → Deploy → Run workflow**). The workflow will:
 
-1. Create the Cloudflare CNAME (`secret-store.chrisvouga.dev` → `secret-store-chrisvouga.fly.dev`, not proxied)
+1. Create the Cloudflare CNAME (`vault.chrisvouga.dev` → `secret-store-chrisvouga.fly.dev`, not proxied)
 2. Run database migrations against Neon (`secret_store` schema)
 3. Deploy OpenBao to Fly.io
 4. Auto-unseal OpenBao using keys from `crvouga.kv` (`k = 'secret-store/unseal-keys'`)
@@ -107,7 +107,7 @@ After the first deploy succeeds, run init locally:
 
 ```bash
 export DB_CONNECTION_URI="postgres://..."
-export VAULT_ADDR="https://secret-store.chrisvouga.dev"
+export VAULT_ADDR="https://vault.chrisvouga.dev"
 
 chmod +x scripts/init.sh scripts/migrate.sh
 ./scripts/init.sh
@@ -153,7 +153,7 @@ To add a new migration, create `migrations/003_description.sql` using fully qual
 After a machine restart or redeploy, OpenBao starts **sealed**. CI auto-unseals on every deploy from `crvouga.kv`. To unseal manually (fallback):
 
 ```bash
-export VAULT_ADDR="https://secret-store.chrisvouga.dev"
+export VAULT_ADDR="https://vault.chrisvouga.dev"
 
 vault operator unseal   # enter unseal key 1
 vault operator unseal   # enter unseal key 2
@@ -257,7 +257,7 @@ vault setup --project myapp --config dev
 This writes [`.vault.yaml`](.vault.yaml.example):
 
 ```yaml
-addr: https://secret-store.chrisvouga.dev
+addr: https://vault.chrisvouga.dev
 mount: secret
 project: myapp
 config: dev
@@ -334,7 +334,7 @@ secret-store/
 | Health check fails | Check Fly logs: `fly logs --app secret-store-chrisvouga` |
 | Smoke test returns 503 | OpenBao is sealed — run manual unseal |
 | DNS not resolving | Verify Cloudflare CNAME points to `secret-store-chrisvouga.fly.dev` (proxied: off) |
-| TLS certificate pending | Wait for DNS propagation; check with `fly certs check secret-store.chrisvouga.dev` |
+| TLS certificate pending | Wait for DNS propagation; check with `fly certs check vault.chrisvouga.dev` |
 | DB connection errors | Verify `DB_CONNECTION_URI` Fly secret matches Neon connection string |
 | Migration job fails | Check `DB_CONNECTION_URI` GitHub secret; ensure Neon allows connections from GitHub Actions IPs |
 | Empty OpenBao after schema change | If data existed in `public.vault_kv_store`, migrate manually: `INSERT INTO secret_store.vault_kv_store SELECT * FROM public.vault_kv_store;` |

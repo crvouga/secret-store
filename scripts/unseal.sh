@@ -2,7 +2,7 @@
 # Auto-unseal OpenBao after deploy using keys stored in crvouga.kv.
 set -euo pipefail
 
-VAULT_ADDR="${VAULT_ADDR:-https://secret-store.chrisvouga.dev}"
+VAULT_ADDR="${VAULT_ADDR:-https://vault.chrisvouga.dev}"
 UNSEAL_THRESHOLD_OVERRIDE="${UNSEAL_THRESHOLD:-}"
 UNSEAL_KEYS_ROW="${UNSEAL_KEYS_ROW:-secret-store/unseal-keys}"
 

@@ -32,7 +32,7 @@ Options:
   -h, --help        Show this help
 
 Environment:
-  VAULT_ADDR        Vault API address (default: https://secret-store.chrisvouga.dev)
+  VAULT_ADDR        Vault API address (default: https://vault.chrisvouga.dev)
   VAULT_TOKEN       Admin token (root or with auth/policy write). Resolved
                     automatically from login session, ~/.vault-token, or
                     init-output.json if unset.

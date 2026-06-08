@@ -148,7 +148,7 @@ Options:
   --project NAME   Project name (required)
   --config NAME    Config/environment name (required)
   --mount PATH     KV mount (default: secret)
-  --addr URL       Vault address (default: https://secret-store.chrisvouga.dev)
+  --addr URL       Vault address (default: https://vault.chrisvouga.dev)
   -h, --help       Show this help
 
 Example:

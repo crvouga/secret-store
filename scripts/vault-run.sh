@@ -20,7 +20,7 @@ Resolves credentials in order:
   4. Root token from init-output.json (after ./scripts/init.sh)
 
 Environment:
-  VAULT_ADDR   Vault API address (default: https://secret-store.chrisvouga.dev)
+  VAULT_ADDR   Vault API address (default: https://vault.chrisvouga.dev)
 
 Examples:
   $(basename "$0") -- ./scripts/smoke-test.sh

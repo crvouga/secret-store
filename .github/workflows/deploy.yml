@@ -12,7 +12,7 @@ concurrency:
 
 env:
   FLY_APP: secret-store-chrisvouga
-  CUSTOM_DOMAIN: secret-store.chrisvouga.dev
+  CUSTOM_DOMAIN: vault.chrisvouga.dev
 
 jobs:
   provision-dns:
@@ -208,7 +208,7 @@ jobs:
 
   unseal:
     name: Unseal OpenBao
-    needs: deploy
+    needs: [deploy, issue-tls]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
