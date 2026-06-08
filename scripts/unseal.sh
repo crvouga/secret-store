@@ -3,7 +3,7 @@
 set -euo pipefail
 
 VAULT_ADDR="${VAULT_ADDR:-https://secret-store.chrisvouga.dev}"
-UNSEAL_THRESHOLD="${UNSEAL_THRESHOLD:-3}"
+UNSEAL_THRESHOLD_OVERRIDE="${UNSEAL_THRESHOLD:-}"
 UNSEAL_KEYS_ROW="${UNSEAL_KEYS_ROW:-secret-store/unseal-keys}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -69,6 +69,12 @@ if ! echo "$KEYS_JSON" | jq -e . >/dev/null 2>&1; then
   exit 1
 fi
 
+SEAL_STATUS="$(curl -sf "${VAULT_ADDR}/v1/sys/seal-status")"
+UNSEAL_THRESHOLD="$(echo "$SEAL_STATUS" | jq -r '.t // empty')"
+if [ -z "$UNSEAL_THRESHOLD" ] || [ "$UNSEAL_THRESHOLD" = "null" ]; then
+  UNSEAL_THRESHOLD="${UNSEAL_THRESHOLD_OVERRIDE:-3}"
+fi
+
 extract_unseal_key() {
   local keys_json="$1"
   local index="$2"
@@ -102,16 +108,29 @@ extract_unseal_key() {
   return 1
 }
 
-echo "==> Applying ${UNSEAL_THRESHOLD} unseal key(s)..."
+echo "==> Applying ${UNSEAL_THRESHOLD} unseal key(s) (threshold from seal-status)..."
 for i in $(seq 1 "$UNSEAL_THRESHOLD"); do
   KEY="$(extract_unseal_key "$KEYS_JSON" "$i" | tr -d '\n\r' || true)"
   if [ -z "$KEY" ]; then
-    echo "ERROR: unseal key ${i} missing from crvouga.kv (UNSEAL_THRESHOLD=${UNSEAL_THRESHOLD})" >&2
+    echo "ERROR: unseal key ${i} missing from crvouga.kv (need ${UNSEAL_THRESHOLD} key(s))" >&2
     echo "       Expected keys_base64[], unseal_keys_b64[], or key_${i} in v." >&2
     exit 1
   fi
   echo "    Unseal key ${i}/${UNSEAL_THRESHOLD}..."
-  vault_cmd operator unseal "$KEY" >/dev/null || true
+  UNSEAL_OUTPUT="$(vault_cmd operator unseal "$KEY" 2>&1)" || {
+    echo "$UNSEAL_OUTPUT" >&2
+    if echo "$UNSEAL_OUTPUT" | grep -qi "failed to setup auth table"; then
+      echo "ERROR: OpenBao post-unseal setup failed (duplicate auth mount in storage)." >&2
+      echo "       Run: ./scripts/repair-openbao-auth-mounts.sh" >&2
+    fi
+    exit 1
+  }
+
+  SEALED="$(echo "$UNSEAL_OUTPUT" | jq -r '.sealed // true')"
+  if [ "$SEALED" = "false" ]; then
+    echo "==> OpenBao unsealed successfully."
+    exit 0
+  fi
 done
 
 SEALED="$(curl -sf "${VAULT_ADDR}/v1/sys/seal-status" | jq -r '.sealed // true')"

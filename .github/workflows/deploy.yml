@@ -200,7 +200,10 @@ jobs:
       - name: Deploy
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-        run: flyctl deploy --remote-only --app "${FLY_APP}"
+        run: |
+          set -euo pipefail
+          flyctl deploy --remote-only --app "${FLY_APP}"
+          flyctl scale count 1 --app "${FLY_APP}" --yes
 
   unseal:
     name: Unseal OpenBao
@@ -228,11 +231,11 @@ jobs:
         env:
           VAULT_ADDR: https://${{ env.CUSTOM_DOMAIN }}
           DB_CONNECTION_URI: ${{ secrets.DB_CONNECTION_URI }}
-          UNSEAL_THRESHOLD: "3"
         run: |
           set -euo pipefail
-          chmod +x scripts/install-vault-cli.sh scripts/unseal.sh
+          chmod +x scripts/install-vault-cli.sh scripts/repair-openbao-auth-mounts.sh scripts/unseal.sh
           ./scripts/install-vault-cli.sh
+          ./scripts/repair-openbao-auth-mounts.sh
           ./scripts/unseal.sh
 
   issue-tls:
