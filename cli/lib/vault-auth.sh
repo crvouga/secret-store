@@ -3,31 +3,53 @@
 
 VAULT_DEFAULT_ADDR="${VAULT_DEFAULT_ADDR:-https://secret-store.chrisvouga.dev}"
 
-resolve_vault_bin() {
-  if [ -n "${VAULT_REAL_BIN:-}" ] && [ -x "$VAULT_REAL_BIN" ]; then
+is_vault_cli() {
+  local bin="$1"
+  local version_output
+
+  [ -x "$bin" ] || return 1
+  version_output="$("$bin" version 2>/dev/null)" || return 1
+  printf '%s' "$version_output" | grep -qiE 'vault|openbao'
+}
+
+try_vault_candidate() {
+  local candidate="$1"
+
+  if [ -n "$candidate" ] && [ -x "$candidate" ] && is_vault_cli "$candidate"; then
+    VAULT_REAL_BIN="$candidate"
     return 0
   fi
+
+  return 1
+}
+
+resolve_vault_bin() {
+  if [ -n "${VAULT_REAL_BIN:-}" ] && try_vault_candidate "$VAULT_REAL_BIN"; then
+    return 0
+  fi
+  VAULT_REAL_BIN=""
 
   local candidate current_vault
   current_vault="$(command -v vault 2>/dev/null || true)"
 
-  for candidate in vault-real bao openbao; do
-    if VAULT_REAL_BIN="$(command -v "$candidate" 2>/dev/null)" && [ -n "$VAULT_REAL_BIN" ]; then
+  for candidate in vault-real openbao bao; do
+    candidate="$(command -v "$candidate" 2>/dev/null || true)"
+    if try_vault_candidate "$candidate"; then
       return 0
     fi
   done
 
   for candidate in /opt/homebrew/bin/vault /usr/local/bin/vault \
-    /opt/homebrew/bin/bao /usr/local/bin/openbao; do
-    if [ -x "$candidate" ]; then
-      VAULT_REAL_BIN="$candidate"
+    /opt/homebrew/bin/openbao /usr/local/bin/openbao \
+    /opt/homebrew/bin/bao /usr/local/bin/bao; do
+    if try_vault_candidate "$candidate"; then
       return 0
     fi
   done
 
   if [ -n "$current_vault" ] && [ -f "$current_vault" ] \
-    && ! grep -q "secret-store-vault-wrapper" "$current_vault" 2>/dev/null; then
-    VAULT_REAL_BIN="$current_vault"
+    && ! grep -q "secret-store-vault-wrapper" "$current_vault" 2>/dev/null \
+    && try_vault_candidate "$current_vault"; then
     return 0
   fi
 

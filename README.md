@@ -1,23 +1,23 @@
 # Secret Store (OpenBao on Fly.io)
 
-Production-ready [OpenBao](https://openbao.org/) deployment on Fly.io with Neon Postgres storage, Cloudflare DNS, and manual GitHub Actions workflows.
+Production-ready [OpenBao](https://openbao.org/) deployment on Fly.io with Neon Postgres storage, Cloudflare DNS, and automated GitHub Actions pipeline.
 
 **URL:** https://secret-store.chrisvouga.dev
 
 ## Architecture
 
 ```
-GitHub Actions (manual: Actions → Deploy → Run workflow)
+GitHub Actions (push to main, or Actions → Deploy → Run workflow)
   ├── provision-dns   → Cloudflare CNAME
   ├── migrate-db      → Neon Postgres (secret_store schema)
   ├── deploy          → Fly.io (OpenBao container)
-  └── issue-tls       → Fly.io certificate
-
-GitHub Actions (manual: Actions → Smoke Test → Run workflow, after unsealing)
-  └── smoke-test      → KV round-trip verification
+  ├── unseal          → Auto-unseal from crvouga.kv
+  ├── issue-tls       → Fly.io certificate
+  └── smoke-test      → KV round-trip (token from crvouga.kv)
 
 OpenBao (Fly.io) ──storage──► Neon Postgres (secret_store schema)
 Cloudflare DNS ──CNAME──► secret-store-chrisvouga.fly.dev
+crvouga.kv ──unseal keys + root_token──► CI unseal + smoke-test
 ```
 
 ## Database schema
@@ -72,7 +72,7 @@ chmod +x scripts/seed-github-secrets.sh
 | `FLY_API_TOKEN` | Yes | `fly tokens create deploy` (or session token) |
 | `CF_API_TOKEN` | Yes | `CLOUDFLARE_API_TOKEN` — dashboard API token (not Wrangler) |
 | `DB_CONNECTION_URI` | Yes | `neon connection-string` |
-| `VAULT_TOKEN` | After init | `init-output.json` (after `./scripts/init.sh`) |
+| `VAULT_TOKEN` | Optional | `init-output.json` — CI reads `root_token` from `crvouga.kv` instead |
 
 Flags:
 
@@ -81,7 +81,7 @@ Flags:
 
 Optional overrides via [`.env`](.env) or [`.env.secrets`](.env.secrets.example) (`.env.secrets` takes precedence). Set `NEON_PROJECT_ID` if you have multiple Neon projects (or run `neon set-context` first).
 
-Re-run after `init.sh` to pick up `VAULT_TOKEN` from `init-output.json` for CI smoke tests.
+Re-run after `init.sh` if you want `VAULT_TOKEN` in GitHub for local tooling; CI smoke tests use `root_token` from `crvouga.kv`.
 
 The workflow derives everything else automatically:
 
@@ -90,14 +90,16 @@ The workflow derives everything else automatically:
 
 ### 3. Deploy via GitHub Actions
 
-In GitHub: **Actions → Deploy → Run workflow**. The workflow will:
+Push to `main` (or run **Actions → Deploy → Run workflow**). The workflow will:
 
 1. Create the Cloudflare CNAME (`secret-store.chrisvouga.dev` → `secret-store-chrisvouga.fly.dev`, not proxied)
 2. Run database migrations against Neon (`secret_store` schema)
 3. Deploy OpenBao to Fly.io
-4. Issue a TLS certificate for the custom domain
+4. Auto-unseal OpenBao using keys from `crvouga.kv` (`k = 'secret-store/unseal-keys'`)
+5. Issue a TLS certificate for the custom domain
+6. Run smoke tests using `root_token` from the same `crvouga.kv` row
 
-Deploy is **not** triggered on push to `main` — run it manually when you want to release. Every deploy restarts OpenBao in a **sealed** state; unseal manually after deploy (see below).
+Every deploy restarts OpenBao **sealed**; CI unseals automatically before smoke tests.
 
 ### 4. Initialize OpenBao (one-time, local)
 
@@ -121,13 +123,13 @@ This script will:
 
 **Save the unseal keys and root token from the output immediately.**
 
-Then re-run the seed script to push `VAULT_TOKEN` to GitHub:
+Store unseal keys and `root_token` in `crvouga.kv` (managed out of band) so CI can auto-unseal and smoke-test. Optionally re-run the seed script for GitHub `VAULT_TOKEN`:
 
 ```bash
 ./scripts/seed-github-secrets.sh
 ```
 
-Re-run the **Smoke Test** workflow (Actions → Smoke Test → Run workflow) after unsealing to verify the deployment.
+Push to `main` (or re-run Deploy) to verify the full pipeline including smoke tests.
 
 ## **WARNING: Back Up Unseal Keys and Root Token**
 
@@ -148,7 +150,7 @@ To add a new migration, create `migrations/003_description.sql` using fully qual
 
 ## Manual Unseal
 
-After a machine restart or redeploy, OpenBao starts **sealed**. Unseal manually after each deploy:
+After a machine restart or redeploy, OpenBao starts **sealed**. CI auto-unseals on every deploy from `crvouga.kv`. To unseal manually (fallback):
 
 ```bash
 export VAULT_ADDR="https://secret-store.chrisvouga.dev"
@@ -160,9 +162,11 @@ vault operator unseal   # enter unseal key 3
 vault status            # should show Sealed: false
 ```
 
-You need 3 of the 5 unseal keys each time.
+You need 3 of the 5 unseal keys each time. To print ready-to-run commands from the DB:
 
-[`scripts/unseal.sh`](scripts/unseal.sh) can auto-unseal from keys stored in `crvouga.kv` if you configure that separately; it is not run by the Deploy workflow.
+```bash
+psql "$DB_CONNECTION_URI" -f scripts/queries/unseal-keys.sql
+```
 
 ## Smoke Tests
 
@@ -181,7 +185,7 @@ Auth is resolved automatically from `VAULT_TOKEN`, `vault login`, `~/.vault-toke
 
 ### In CI
 
-Run **Actions → Smoke Test → Run workflow** after deploying and unsealing OpenBao. Requires `VAULT_TOKEN` in GitHub secrets (set via `./scripts/seed-github-secrets.sh` after init). If the secret is not set yet, the job skips with a message.
+Smoke tests run automatically at the end of the Deploy workflow on every push to `main`. The job reads `root_token` from `crvouga.kv` via [`scripts/fetch-vault-token.sh`](scripts/fetch-vault-token.sh). The deploy fails if unseal or smoke-test does not succeed.
 
 ## Migrating from Doppler
 
@@ -312,8 +316,7 @@ This returns HTTP 200 even when OpenBao is sealed or uninitialized, so the proce
 ```
 secret-store/
 ├── .github/workflows/
-│   ├── deploy.yml                 # Manual deploy pipeline
-│   └── smoke-test.yml             # Manual smoke test (run after unseal)
+│   └── deploy.yml                 # CI/CD: deploy, auto-unseal, smoke-test
 ├── cli/                           # Global vault wrapper (vault run / vault setup)
 │   ├── bin/vault
 │   └── lib/
@@ -322,11 +325,14 @@ secret-store/
 │   └── policies/dev-read.hcl      # Scoped read policy for local dev
 ├── migrations/                    # SQL migrations (secret_store schema)
 ├── scripts/
+│   ├── queries/
+│   │   └── unseal-keys.sql             # Copy-paste unseal commands from crvouga.kv
 │   ├── init.sh                         # First-time initialization
 │   ├── migrate.sh                      # Apply database migrations
 │   ├── install-cli.sh                  # Install global vault wrapper
 │   ├── create-dev-token.sh             # Create scoped local-dev token
-│   ├── unseal.sh                       # Optional auto-unseal from crvouga.kv
+│   ├── unseal.sh                       # Auto-unseal from crvouga.kv (CI)
+│   ├── fetch-vault-token.sh            # Read root_token from crvouga.kv (CI)
 │   ├── vault-run.sh                    # Run a command with Vault API credentials
 │   ├── migrate-doppler-to-openbao.sh   # Copy secrets from Doppler to OpenBao
 │   ├── seed-github-secrets.sh          # Auto-fetch + seed GitHub/Fly secrets

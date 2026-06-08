@@ -4,7 +4,18 @@ set -euo pipefail
 
 if [ -z "${SECRET_STORE_CLI_ROOT:-}" ]; then
   WRAPPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  SECRET_STORE_CLI_ROOT="$(cd "${WRAPPER_DIR}/.." && pwd)"
+  if [ -f "${WRAPPER_DIR}/../lib/vault-auth.sh" ]; then
+    SECRET_STORE_CLI_ROOT="$(cd "${WRAPPER_DIR}/.." && pwd)"
+  else
+    INSTALL_ROOT="${SECRET_STORE_INSTALL_ROOT:-${HOME}/.local/share/secret-store}"
+    if [ -f "${INSTALL_ROOT}/cli/lib/vault-auth.sh" ]; then
+      SECRET_STORE_CLI_ROOT="${INSTALL_ROOT}/cli"
+    else
+      echo "ERROR: Could not find secret-store CLI library." >&2
+      echo "       Re-run: ./scripts/install-cli.sh" >&2
+      exit 1
+    fi
+  fi
 fi
 
 # shellcheck source=../lib/vault-auth.sh
