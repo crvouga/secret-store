@@ -2,7 +2,7 @@
 set -euo pipefail
 
 OWNER="${OWNER:-crvouga}"
-OLD_HOST="${OLD_HOST:-secret-store.chrisvouga.dev}"
+OLD_HOST="${OLD_HOST:-vault.chrisvouga.dev}"
 NEW_HOST="${NEW_HOST:-vault.chrisvouga.dev}"
 DRY_RUN=0
 COMMIT_MSG="chore: migrate vault domain to ${NEW_HOST}"
