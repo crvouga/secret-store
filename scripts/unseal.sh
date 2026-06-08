@@ -50,21 +50,60 @@ if [ "$SEALED" = "false" ]; then
 fi
 
 echo "==> OpenBao is sealed. Fetching unseal keys from crvouga.kv..."
-KEYS_JSON="$(psql "$DB_CONNECTION_URI" -tAc \
-  "SELECT v FROM crvouga.kv WHERE k = '${UNSEAL_KEYS_ROW}'" | tr -d '\n' | xargs)"
+KEYS_JSON="$(psql "$DB_CONNECTION_URI" -t -A -q --no-psqlrc \
+  -c "SELECT v::text FROM crvouga.kv WHERE k = '${UNSEAL_KEYS_ROW}'" \
+  | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
 
 if [ -z "$KEYS_JSON" ]; then
   echo "ERROR: No unseal keys found at crvouga.kv (k='${UNSEAL_KEYS_ROW}')" >&2
-  echo "       Populate crvouga.kv with key_1, key_2, ... in the v JSON column." >&2
+  echo "       Populate crvouga.kv with keys_base64, unseal_keys_b64, or key_1..key_N in v." >&2
   exit 1
 fi
 
+if ! echo "$KEYS_JSON" | jq -e . >/dev/null 2>&1; then
+  echo "ERROR: Unseal keys at crvouga.kv (k='${UNSEAL_KEYS_ROW}') are not valid JSON" >&2
+  exit 1
+fi
+
+extract_unseal_key() {
+  local keys_json="$1"
+  local index="$2"
+  local idx=$((index - 1))
+  local key
+
+  key="$(echo "$keys_json" | jq -r --arg n "$index" '.["key_" + $n] // empty')"
+  if [ -n "$key" ]; then
+    printf '%s' "$key"
+    return 0
+  fi
+
+  key="$(echo "$keys_json" | jq -r --argjson idx "$idx" '.unseal_keys_b64[$idx] // empty')"
+  if [ -n "$key" ]; then
+    printf '%s' "$key"
+    return 0
+  fi
+
+  key="$(echo "$keys_json" | jq -r --argjson idx "$idx" '.keys_base64[$idx] // empty')"
+  if [ -n "$key" ]; then
+    printf '%s' "$key"
+    return 0
+  fi
+
+  key="$(echo "$keys_json" | jq -r --argjson idx "$idx" '.keys[$idx] // empty')"
+  if [ -n "$key" ]; then
+    printf '%s' "$key"
+    return 0
+  fi
+
+  return 1
+}
+
 echo "==> Applying ${UNSEAL_THRESHOLD} unseal key(s)..."
 for i in $(seq 1 "$UNSEAL_THRESHOLD"); do
-  KEY="$(echo "$KEYS_JSON" | jq -r --arg n "$i" '.["key_" + $n] // empty')"
-  KEY="$(printf '%s' "$KEY" | tr -d '\n\r')"
+  KEY="$(extract_unseal_key "$KEYS_JSON" "$i" | tr -d '\n\r' || true)"
   if [ -z "$KEY" ]; then
-    echo "ERROR: key_${i} missing from crvouga.kv (UNSEAL_THRESHOLD=${UNSEAL_THRESHOLD})" >&2
+    echo "ERROR: unseal key ${i} missing from crvouga.kv (UNSEAL_THRESHOLD=${UNSEAL_THRESHOLD})" >&2
+    echo "       Expected keys_base64[], unseal_keys_b64[], or key_${i} in v." >&2
     exit 1
   fi
   echo "    Unseal key ${i}/${UNSEAL_THRESHOLD}..."
