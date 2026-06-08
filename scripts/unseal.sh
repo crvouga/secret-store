@@ -126,7 +126,8 @@ for i in $(seq 1 "$UNSEAL_THRESHOLD"); do
     exit 1
   }
 
-  SEALED="$(echo "$UNSEAL_OUTPUT" | jq -r '.sealed // true')"
+  # CLI defaults to table output; query seal-status API for JSON.
+  SEALED="$(curl -sf "${VAULT_ADDR}/v1/sys/seal-status" | jq -r '.sealed // true')"
   if [ "$SEALED" = "false" ]; then
     echo "==> OpenBao unsealed successfully."
     exit 0
