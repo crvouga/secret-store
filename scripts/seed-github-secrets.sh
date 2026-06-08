@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-FLY_APP="secret-store-chrisvouga"
+FLY_APP="vault"
 SKIP_FLY=false
 SKIP_VAULT=false
 

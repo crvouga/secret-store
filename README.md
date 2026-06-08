@@ -16,7 +16,7 @@ GitHub Actions (push to main, or Actions → Deploy → Run workflow)
   └── smoke-test      → KV round-trip (token from crvouga.kv)
 
 OpenBao (Fly.io) ──storage──► Neon Postgres (secret_store schema)
-Cloudflare DNS ──CNAME──► secret-store-chrisvouga.fly.dev
+Cloudflare DNS ──CNAME──► vault.fly.dev
 crvouga.kv ──unseal keys + root_token──► CI unseal + smoke-test
 ```
 
@@ -47,7 +47,7 @@ OpenBao is configured with `skip_create_table = true` so it never auto-creates t
 ### 1. Create the Fly app (one-time, local)
 
 ```bash
-fly apps create secret-store-chrisvouga
+fly apps create vault
 ```
 
 ### 2. Seed secrets
@@ -86,13 +86,13 @@ Re-run after `init.sh` if you want `VAULT_TOKEN` in GitHub for local tooling; CI
 The workflow derives everything else automatically:
 
 - **Cloudflare zone** — looked up from `CUSTOM_DOMAIN` (`vault.chrisvouga.dev` → zone `chrisvouga.dev`)
-- **Fly hostname** — derived from `FLY_APP` (`secret-store-chrisvouga.fly.dev`)
+- **Fly hostname** — derived from `FLY_APP` (`vault.fly.dev`)
 
 ### 3. Deploy via GitHub Actions
 
 Push to `main` (or run **Actions → Deploy → Run workflow**). The workflow will:
 
-1. Create the Cloudflare CNAME (`vault.chrisvouga.dev` → `secret-store-chrisvouga.fly.dev`, not proxied)
+1. Create the Cloudflare CNAME (`vault.chrisvouga.dev` → `vault.fly.dev`, not proxied)
 2. Run database migrations against Neon (`secret_store` schema)
 3. Deploy OpenBao to Fly.io
 4. Auto-unseal OpenBao using keys from `crvouga.kv` (`k = 'secret-store/unseal-keys'`)
@@ -280,7 +280,7 @@ Secrets are read from `secret/<project>/<config>` (KV v2). Each field becomes an
 | `DB_CONNECTION_URI` | Neon Postgres connection string for OpenBao storage backend |
 
 ```bash
-fly secrets set DB_CONNECTION_URI="postgres://..." --app secret-store-chrisvouga
+fly secrets set DB_CONNECTION_URI="postgres://..." --app vault
 ```
 
 Fly also sets `FLY_APP_NAME` automatically, which the entrypoint uses to configure `BAO_API_ADDR`. The entrypoint appends `search_path=secret_store` to the connection URL at runtime.
@@ -331,9 +331,9 @@ secret-store/
 
 | Symptom | Fix |
 |---------|-----|
-| Health check fails | Check Fly logs: `fly logs --app secret-store-chrisvouga` |
+| Health check fails | Check Fly logs: `fly logs --app vault` |
 | Smoke test returns 503 | OpenBao is sealed — run manual unseal |
-| DNS not resolving | Verify Cloudflare CNAME points to `secret-store-chrisvouga.fly.dev` (proxied: off) |
+| DNS not resolving | Verify Cloudflare CNAME points to `vault.fly.dev` (proxied: off) |
 | TLS certificate pending | Wait for DNS propagation; check with `fly certs check vault.chrisvouga.dev` |
 | DB connection errors | Verify `DB_CONNECTION_URI` Fly secret matches Neon connection string |
 | Migration job fails | Check `DB_CONNECTION_URI` GitHub secret; ensure Neon allows connections from GitHub Actions IPs |

@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  FLY_APP: secret-store-chrisvouga
+  FLY_APP: vault
   CUSTOM_DOMAIN: vault.chrisvouga.dev
 
 jobs:
