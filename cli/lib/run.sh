@@ -10,8 +10,8 @@ Fetch secrets from Vault and run a command with them injected as env vars.
 Options:
   --path PATH       Full KV path (e.g. secret/myapp/dev)
   --mount PATH      KV mount (default: secret, or from .vault.yaml)
-  --project NAME    Doppler-style project name
-  --config NAME     Doppler-style config/environment name
+  --project NAME    Logical project name
+  --config NAME     Environment config name
   --dry-run         Print secret path and env var names only (no values)
   -h, --help        Show this help
 
@@ -142,7 +142,7 @@ vault_setup_usage() {
   cat <<EOF
 Usage: vault setup [OPTIONS]
 
-Write a .vault.yaml config file in the current directory (Doppler-style setup).
+Write a .vault.yaml config file in the current directory.
 
 Options:
   --project NAME   Project name (required)

@@ -47,7 +47,7 @@ case "$subcommand" in
     ;;
   -h|--help|help)
     cat <<EOF
-secret-store vault wrapper — Doppler-style secret injection for self-hosted OpenBao.
+secret-store vault wrapper — secret injection for self-hosted OpenBao.
 
 Usage:
   vault run [OPTIONS] -- <command> [args...]   Run command with secrets injected

@@ -6,8 +6,8 @@ project repo you want to set up**.
 ---
 
 You are wiring this **greenfield project** to a **self-hosted OpenBao/Vault**
-secret store. The project has no prior secrets manager integration — no Doppler,
-no existing `.vault.yaml`, no stored tokens. Your job is to identify what
+secret store. The project has no existing `.vault.yaml` or stored tokens. Your
+job is to identify what
 secrets the app needs, connect it to the store, and document the workflow.
 
 ## What the secret store is
@@ -25,7 +25,8 @@ secrets the app needs, connect it to the store, and document the workflow.
 
 ## CLI wrapper (install once per machine)
 
-The `secret-store` repo ships a Doppler-style CLI wrapper on top of the real
+The `secret-store` repo ships a CLI wrapper with `run` and `setup` subcommands
+on top of the real
 `vault`/`bao` binary:
 
 | Task | Command |

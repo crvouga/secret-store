@@ -187,45 +187,6 @@ Auth is resolved automatically from `VAULT_TOKEN`, `vault login`, `~/.vault-toke
 
 Smoke tests run automatically at the end of the Deploy workflow on every push to `main`. The job reads `root_token` from `crvouga.kv` via [`scripts/fetch-vault-token.sh`](scripts/fetch-vault-token.sh). The deploy fails if unseal or smoke-test does not succeed.
 
-## Migrating from Doppler
-
-Use [`scripts/migrate-doppler-to-openbao.sh`](scripts/migrate-doppler-to-openbao.sh) to copy secrets from Doppler into OpenBao. The script is read-only against Doppler and writes to OpenBao only.
-
-**Mapping:** each Doppler project/config (e.g. `myapp` / `prd`) becomes one KV v2 secret at `secret/<project>/<config>`. Each Doppler key becomes a field on that secret. Reserved `DOPPLER_*` keys are excluded.
-
-**Prerequisites:**
-
-- [Doppler CLI](https://docs.doppler.com/docs/install-cli) authenticated (`doppler login`) with workplace-wide read access
-- OpenBao initialized and unsealed
-- Vault auth via `vault login`, `VAULT_TOKEN`, or `init-output.json` (see [`scripts/vault-run.sh`](scripts/vault-run.sh))
-
-```bash
-export VAULT_ADDR="https://secret-store.chrisvouga.dev"
-
-chmod +x scripts/vault-run.sh scripts/migrate-doppler-to-openbao.sh
-
-# Preview what would be migrated
-./scripts/vault-run.sh -- ./scripts/migrate-doppler-to-openbao.sh --dry-run
-
-# Migrate all projects and configs
-./scripts/vault-run.sh -- ./scripts/migrate-doppler-to-openbao.sh
-
-# Limit to specific projects or use a custom mount
-./scripts/vault-run.sh -- ./scripts/migrate-doppler-to-openbao.sh --project myapp --mount secret
-```
-
-| Flag | Purpose |
-|------|---------|
-| `--dry-run` | List paths and key counts without writing |
-| `--mount PATH` | KV v2 mount (default: `secret`) |
-| `--project NAME` | Limit to specific Doppler projects (repeatable) |
-
-Re-running the script is safe — KV v2 creates a new version for each write. Verify a migrated secret:
-
-```bash
-vault kv get -format=json secret/myapp/prd
-```
-
 ## Syncing dev keys to prd
 
 Use [`scripts/sync-dev-keys-to-prd.sh`](scripts/sync-dev-keys-to-prd.sh) to ensure each project's `prd` secret has every key from its `dev` secret. Missing keys in prd are copied from dev; existing prd keys are never overwritten. Keys present only in prd are left unchanged. The script never syncs prd → dev.
@@ -256,16 +217,9 @@ chmod +x scripts/vault-run.sh scripts/sync-dev-keys-to-prd.sh
 
 Re-running is safe — only keys absent from prd are added.
 
-## Using secrets locally (Doppler-style)
+## Using secrets locally
 
 Install the global `vault` wrapper once, then use `vault run` in any project to inject secrets as environment variables.
-
-| Doppler | This setup |
-|---------|------------|
-| `doppler login` | `vault login hvs.xxx` |
-| `doppler setup` | `vault setup --project X --config Y` |
-| `doppler run -- npm start` | `vault run -- npm start` |
-| `doppler.yaml` | `.vault.yaml` |
 
 ### 1. Install the CLI wrapper
 
@@ -300,7 +254,7 @@ cd ~/my-app
 vault setup --project myapp --config dev
 ```
 
-This writes [`.vault.yaml`](.vault.yaml.example) (like Doppler's `doppler.yaml`):
+This writes [`.vault.yaml`](.vault.yaml.example):
 
 ```yaml
 addr: https://secret-store.chrisvouga.dev
@@ -364,7 +318,6 @@ secret-store/
 │   ├── unseal.sh                       # Auto-unseal from crvouga.kv (CI)
 │   ├── fetch-vault-token.sh            # Read root_token from crvouga.kv (CI)
 │   ├── vault-run.sh                    # Run a command with Vault API credentials
-│   ├── migrate-doppler-to-openbao.sh   # Copy secrets from Doppler to OpenBao
 │   ├── seed-github-secrets.sh          # Auto-fetch + seed GitHub/Fly secrets
 │   └── smoke-test.sh                   # End-to-end verification
 ├── .vault.yaml.example            # Per-project config template

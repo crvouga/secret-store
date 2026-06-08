@@ -1,4 +1,4 @@
-# .vault.yaml project config helpers (Doppler-style).
+# Per-project .vault.yaml helpers.
 # shellcheck shell=bash
 
 VAULT_CONFIG_FILE=".vault.yaml"

@@ -23,8 +23,8 @@ Environment:
   VAULT_ADDR   Vault API address (default: https://secret-store.chrisvouga.dev)
 
 Examples:
-  $(basename "$0") -- ./scripts/migrate-doppler-to-openbao.sh --dry-run
   $(basename "$0") -- ./scripts/smoke-test.sh
+  $(basename "$0") -- ./scripts/sync-dev-keys-to-prd.sh --dry-run
 EOF
 }
 

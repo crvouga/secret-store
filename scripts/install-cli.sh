@@ -15,7 +15,7 @@ Usage: $(basename "$0") [OPTIONS]
 
 Install the secret-store vault CLI wrapper globally.
 
-The wrapper adds Doppler-style commands:
+The wrapper adds run and setup subcommands:
   vault run -- <command>     Inject secrets from Vault as env vars
   vault setup                Write .vault.yaml in your project
 
